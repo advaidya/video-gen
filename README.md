@@ -167,6 +167,86 @@ curl -X POST http://localhost:8080/api/v1/scripts \
 curl http://localhost:8080/actuator/health
 ```
 
+### Testing from the Browser
+
+Since browsers can only make GET requests from the address bar, you can directly test these endpoints:
+
+- **List all scripts**: http://localhost:8080/api/v1/scripts
+- **Get a specific script**: http://localhost:8080/api/v1/scripts/1 (after creating one)
+- **Health check**: http://localhost:8080/actuator/health
+
+For POST, PUT, and DELETE requests, use one of these browser-based options:
+
+**Option 1 — Browser DevTools (no extensions needed)**
+
+Open any page on `localhost:8080`, press `F12` to open DevTools, go to the **Console** tab, and paste:
+
+```javascript
+// Create a script
+fetch('/api/v1/scripts', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    title: 'Browser Test',
+    rawText: 'This is a test narration from the browser. It has multiple sentences. Each one should be grouped into segments of about eight seconds duration.'
+  })
+}).then(r => r.json()).then(console.log);
+
+// Update a script (change the ID as needed)
+fetch('/api/v1/scripts/1', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    title: 'Updated Title',
+    rawText: 'New text content here. With multiple sentences for segmentation.'
+  })
+}).then(r => r.json()).then(console.log);
+
+// Delete a script
+fetch('/api/v1/scripts/1', { method: 'DELETE' }).then(r => console.log('Status:', r.status));
+```
+
+**Option 2 — REST Client extensions**
+
+Use a browser extension like [Talend API Tester](https://chromewebstore.google.com/detail/talend-api-tester-free-ed/aejoelaoggembcahagimdiliamlcdmfm) (Chrome) or [RESTClient](https://addons.mozilla.org/en-US/firefox/addon/restclient/) (Firefox) to send requests with any HTTP method and JSON body.
+
+### Inspecting the H2 Database
+
+When running with the `local` profile, the service uses an H2 in-memory database with a built-in web console.
+
+1. Start the service: `mvn spring-boot:run -Dspring-boot.run.profiles=local`
+2. Open the H2 console in your browser: http://localhost:8080/h2-console
+3. Enter the connection details:
+   - **JDBC URL**: `jdbc:h2:mem:segmentation_db`
+   - **User Name**: `sa`
+   - **Password**: *(leave blank)*
+4. Click **Connect**
+
+You can then run SQL queries directly:
+
+```sql
+-- View all scripts
+SELECT * FROM NARRATION_SCRIPTS;
+
+-- View all segments
+SELECT * FROM SCRIPT_SEGMENTS;
+
+-- View segments for a specific script
+SELECT s.title, seg.segment_number, seg.segment_text, seg.word_count, seg.estimated_duration_seconds
+FROM NARRATION_SCRIPTS s
+JOIN SCRIPT_SEGMENTS seg ON s.id = seg.script_id
+WHERE s.id = 1
+ORDER BY seg.segment_number;
+
+-- Count segments per script
+SELECT s.id, s.title, COUNT(seg.id) AS segment_count
+FROM NARRATION_SCRIPTS s
+LEFT JOIN SCRIPT_SEGMENTS seg ON s.id = seg.script_id
+GROUP BY s.id, s.title;
+```
+
+> **Note**: The H2 database is in-memory, so all data is lost when the service stops. This is by design for local development.
+
 ## How the Agents Work
 
 ### Feature Tracking

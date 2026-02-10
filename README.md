@@ -80,21 +80,50 @@ curl -X POST http://localhost:8081/api/v1/prompts \
   -d '{"segments":["A hero walks through a misty forest at dawn.","The castle looms in the distance."],"style":"CINEMATIC"}'
 ```
 
-## Agent Usage
+## Agent Harness
 
-Each service has its own agent harness:
+Each service has a Python agent harness that uses the Claude Agent SDK to autonomously build the Spring Boot service feature-by-feature.
+
+### Prerequisites
+
+```bash
+# Install Python dependencies (from project root)
+pip install -r requirements.txt
+
+# Set your Claude API key
+cp .env.example .env
+# Edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Running the Agent
+
+Run from the project root:
 
 ```bash
 # Run segmentation-service agent
-python -m segmentation-service.agent_harness.main
+python3 segmentation-service/agent_harness/main.py
 
 # Run prompt-service agent
-python -m prompt-service.agent_harness.main
+python3 prompt-service/agent_harness/main.py
 ```
 
-Each agent:
-1. Runs the **initializer agent** to scaffold the Spring Boot project
-2. Runs the **coding agent loop** to implement features iteratively
+### How the Agent Works
+
+Each agent runs a two-phase flow:
+
+1. **Initializer phase** — scaffolds the Spring Boot project (directory structure, `pom.xml`, skeleton classes)
+2. **Coding loop** — iterates through pending features in `features.py`, implementing each one with a Claude-driven coding agent
+
+Progress is tracked in `feature_list.json` (created at runtime in the service directory). Delete this file to re-run all features from scratch.
+
+### Adding a New Feature
+
+1. Add a feature entry to `<service>/agent_harness/features.py`:
+   ```python
+   {"id": "my-feature", "name": "My Feature", "status": "pending", "description": "What this feature does"}
+   ```
+2. Update `<service>/agent_harness/prompts/coding_prompt.md` with implementation details for the feature
+3. Run the agent — it picks up the new pending feature automatically
 
 ## Manual Service Usage
 

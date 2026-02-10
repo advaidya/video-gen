@@ -4,11 +4,19 @@ import asyncio
 import os
 import sys
 
+# Allow running directly: python3 segmentation-service/agent_harness/main.py
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(_SCRIPT_DIR))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+
 from dotenv import load_dotenv
 
 from agent_common.progress_tracker import ProgressTracker
 from agent_common.runner import run_initializer, run_coding_loop
-from .features import FEATURES
+from features import FEATURES
 
 
 SERVICE_NAME = "Narration Segmentation Service"

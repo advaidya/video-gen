@@ -1,6 +1,8 @@
 """Generic agent runner logic for initializer and coding sessions."""
 
+import asyncio
 import os
+import sys
 
 from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
 
@@ -11,10 +13,26 @@ from .security import bash_security_filter
 MAX_RETRIES = 3
 
 
+def _stderr_handler(line: str) -> None:
+    """Print SDK/CLI stderr so errors are visible."""
+    sys.stderr.write(f"[claude-cli] {line}\n")
+    sys.stderr.flush()
+
+
 def _load_prompt(prompt_path: str) -> str:
     """Load a prompt from file."""
     with open(prompt_path, "r") as f:
         return f.read()
+
+
+async def _as_prompt_stream(text: str):
+    """Wrap a string prompt as an AsyncIterable for streaming mode (required by can_use_tool)."""
+    yield {
+        "type": "user",
+        "message": {"role": "user", "content": text},
+        "parent_tool_use_id": None,
+        "session_id": None,
+    }
 
 
 async def _collect_result(async_iter) -> ResultMessage | None:
@@ -39,11 +57,13 @@ async def run_initializer(tracker: ProgressTracker, project_dir: str, prompt_pat
         max_turns=50,
         can_use_tool=bash_security_filter,
         cwd=project_dir,
+        stderr=_stderr_handler,
     )
 
     try:
+        full_prompt = f"{prompt}\n\nWorking directory: {project_dir}\n\nPlease scaffold the entire project now."
         result = await _collect_result(query(
-            prompt=f"{prompt}\n\nWorking directory: {project_dir}\n\nPlease scaffold the entire project now.",
+            prompt=_as_prompt_stream(full_prompt),
             options=options,
         ))
 
@@ -83,13 +103,15 @@ async def run_coding_session(
         max_turns=30,
         can_use_tool=bash_security_filter,
         cwd=project_dir,
+        stderr=_stderr_handler,
     )
 
     try:
         tracker.update_feature(feature["id"], "in_progress")
 
+        full_prompt = f"{prompt}\n\n{feature_instruction}"
         result = await _collect_result(query(
-            prompt=f"{prompt}\n\n{feature_instruction}",
+            prompt=_as_prompt_stream(full_prompt),
             options=options,
         ))
 

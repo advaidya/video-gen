@@ -1,5 +1,7 @@
 """Security filters for agent bash command execution."""
 
+from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
+
 ALLOWED_BASH_COMMANDS = {
     "mvn", "java", "git", "mkdir", "ls", "cat", "cp", "mv",
     "curl", "find", "grep", "chmod", "echo", "touch", "pwd",
@@ -14,14 +16,14 @@ BLOCKED_PATTERNS = [
 ]
 
 
-async def bash_security_filter(tool_name: str, tool_input: dict) -> bool:
+async def bash_security_filter(tool_name, tool_input, context):
     """Security callback for ClaudeAgentOptions.can_use_tool.
 
     Allows all non-Bash tools freely. For Bash tools, validates the command
     against the allowlist and blocked patterns.
     """
     if tool_name != "Bash":
-        return True
+        return PermissionResultAllow()
 
     command = tool_input.get("command", "")
 
@@ -29,7 +31,7 @@ async def bash_security_filter(tool_name: str, tool_input: dict) -> bool:
     for pattern in BLOCKED_PATTERNS:
         if pattern in command:
             print(f"[SECURITY] Blocked command matching pattern '{pattern}': {command}")
-            return False
+            return PermissionResultDeny(message=f"Blocked pattern: {pattern}")
 
     # Extract the base command (first word, ignoring env vars)
     parts = command.strip().split()
@@ -42,10 +44,10 @@ async def bash_security_filter(tool_name: str, tool_input: dict) -> bool:
 
     if base_command is None:
         print(f"[SECURITY] Could not parse command: {command}")
-        return False
+        return PermissionResultDeny(message="Could not parse command")
 
     if base_command not in ALLOWED_BASH_COMMANDS:
         print(f"[SECURITY] Command '{base_command}' not in allowlist: {command}")
-        return False
+        return PermissionResultDeny(message=f"Command '{base_command}' not in allowlist")
 
-    return True
+    return PermissionResultAllow()

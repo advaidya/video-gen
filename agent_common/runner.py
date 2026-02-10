@@ -1,4 +1,4 @@
-"""Coding agent that iteratively implements features."""
+"""Generic agent runner logic for initializer and coding sessions."""
 
 import os
 
@@ -8,27 +8,68 @@ from .progress_tracker import ProgressTracker
 from .security import bash_security_filter
 
 
-PROMPT_PATH = os.path.join(os.path.dirname(__file__), "prompts", "coding_prompt.md")
 MAX_RETRIES = 3
 
 
-def load_prompt() -> str:
-    """Load the coding system prompt from file."""
-    with open(PROMPT_PATH, "r") as f:
+def _load_prompt(prompt_path: str) -> str:
+    """Load a prompt from file."""
+    with open(prompt_path, "r") as f:
         return f.read()
+
+
+async def run_initializer(tracker: ProgressTracker, project_dir: str, prompt_path: str) -> str | None:
+    """Run the initializer agent to scaffold the project.
+
+    Returns the session_id for potential follow-up sessions.
+    """
+    prompt = _load_prompt(prompt_path)
+
+    print("\n=== Initializer Agent ===")
+    print("Scaffolding project...")
+
+    options = ClaudeAgentOptions(
+        allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+        permission_mode="acceptEdits",
+        max_turns=50,
+        can_use_tool=bash_security_filter,
+        cwd=project_dir,
+    )
+
+    session_id = None
+
+    try:
+        result: ResultMessage = await query(
+            prompt=f"{prompt}\n\nWorking directory: {project_dir}\n\nPlease scaffold the entire project now.",
+            options=options,
+        )
+
+        session_id = result.session_id if hasattr(result, "session_id") else None
+
+        if hasattr(result, "total_cost_usd") and result.total_cost_usd:
+            print(f"  Cost: ${result.total_cost_usd:.4f}")
+
+        tracker.update_feature("project-scaffold", "completed", "Scaffolded by initializer agent")
+        print("Project scaffolding complete.")
+
+    except Exception as e:
+        print(f"Initializer agent error: {e}")
+        tracker.update_feature("project-scaffold", "failed", str(e))
+
+    return session_id
 
 
 async def run_coding_session(
     tracker: ProgressTracker,
     feature: dict,
     project_dir: str,
+    prompt_path: str,
     previous_session_id: str | None = None,
 ) -> tuple[str | None, bool]:
     """Run a single coding session for one feature.
 
     Returns (session_id, success).
     """
-    prompt = load_prompt()
+    prompt = _load_prompt(prompt_path)
 
     feature_instruction = (
         f"Your assigned feature is: {feature['id']} - {feature['name']}\n"
@@ -45,7 +86,6 @@ async def run_coding_session(
         cwd=project_dir,
     )
 
-    # Support resuming from a previous session for fix-up cycles
     resume_id = previous_session_id if previous_session_id else None
 
     session_id = None
@@ -65,7 +105,7 @@ async def run_coding_session(
         if hasattr(result, "total_cost_usd") and result.total_cost_usd:
             print(f"  Cost: ${result.total_cost_usd:.4f}")
 
-        tracker.update_feature(feature["id"], "completed", f"Implemented by coding agent")
+        tracker.update_feature(feature["id"], "completed", "Implemented by coding agent")
         success = True
         print(f"  Feature '{feature['name']}' completed.")
 
@@ -76,10 +116,8 @@ async def run_coding_session(
     return session_id, success
 
 
-async def run_coding_loop(tracker: ProgressTracker, project_dir: str) -> None:
+async def run_coding_loop(tracker: ProgressTracker, project_dir: str, prompt_path: str) -> None:
     """Iterate over pending features and run coding sessions."""
-    prompt = load_prompt()
-
     print("\n=== Coding Agent Loop ===")
 
     retry_counts: dict[str, int] = {}
@@ -87,7 +125,6 @@ async def run_coding_loop(tracker: ProgressTracker, project_dir: str) -> None:
     while not tracker.all_complete():
         feature = tracker.get_next_pending()
         if feature is None:
-            # Check for failed features that can be retried
             failed = [f for f in tracker.features if f["status"] == "failed"]
             retryable = [f for f in failed if retry_counts.get(f["id"], 0) < MAX_RETRIES]
 
@@ -106,9 +143,9 @@ async def run_coding_loop(tracker: ProgressTracker, project_dir: str) -> None:
             tracker=tracker,
             feature=feature,
             project_dir=project_dir,
+            prompt_path=prompt_path,
         )
 
-        # Print progress
         print(tracker.get_progress_summary())
 
     print("\n=== Coding Agent Loop Complete ===")

@@ -7,39 +7,24 @@ from datetime import datetime
 FEATURE_LIST_PATH = "feature_list.json"
 PROGRESS_FILE_PATH = "claude-progress.txt"
 
-DEFAULT_FEATURES = [
-    {"id": "project-scaffold", "name": "Project Scaffolding", "status": "pending", "description": "Create directory structure, pom.xml, and skeleton classes"},
-    {"id": "database-entities", "name": "Database Entities", "status": "pending", "description": "Implement NarrationScript and ScriptSegment JPA entities"},
-    {"id": "repositories", "name": "Repositories", "status": "pending", "description": "Implement Spring Data JPA repositories"},
-    {"id": "dtos", "name": "DTOs", "status": "pending", "description": "Implement ScriptRequest, ScriptResponse, SegmentResponse"},
-    {"id": "segmentation-logic", "name": "Segmentation Logic", "status": "pending", "description": "Implement sentence-boundary segmentation algorithm (~20 words/segment)"},
-    {"id": "rest-controller", "name": "REST Controller", "status": "pending", "description": "Implement CRUD endpoints at /api/v1/scripts"},
-    {"id": "exception-handling", "name": "Exception Handling", "status": "pending", "description": "Implement GlobalExceptionHandler and ResourceNotFoundException"},
-    {"id": "spring-profiles", "name": "Spring Profiles", "status": "pending", "description": "Configure local (H2), dev (MySQL), prod profiles"},
-    {"id": "flyway-migration", "name": "Flyway Migration", "status": "pending", "description": "Set up Flyway with V1__init_schema.sql"},
-    {"id": "unit-tests-service", "name": "Service Unit Tests", "status": "pending", "description": "Write SegmentationServiceTest with Mockito"},
-    {"id": "unit-tests-controller", "name": "Controller Unit Tests", "status": "pending", "description": "Write ScriptControllerTest with MockMvc"},
-    {"id": "unit-tests-repository", "name": "Repository Unit Tests", "status": "pending", "description": "Write NarrationScriptRepositoryTest with H2"},
-    {"id": "docker-config", "name": "Docker Configuration", "status": "pending", "description": "Create Dockerfile and docker-compose.yml"},
-    {"id": "actuator-health", "name": "Actuator Health", "status": "pending", "description": "Configure Spring Boot Actuator health endpoint"},
-]
-
 
 class ProgressTracker:
     """Manages feature_list.json and claude-progress.txt."""
 
-    def __init__(self, base_dir: str = "."):
+    def __init__(self, base_dir: str = ".", default_features: list[dict] | None = None, service_name: str = "Service"):
         self.base_dir = base_dir
         self.feature_list_path = os.path.join(base_dir, FEATURE_LIST_PATH)
         self.progress_file_path = os.path.join(base_dir, PROGRESS_FILE_PATH)
         self.features: list[dict] = []
+        self.default_features = default_features or []
+        self.service_name = service_name
 
     def initialize_features(self) -> None:
         """Create the initial feature list if it doesn't exist."""
         if os.path.exists(self.feature_list_path):
             self.load_features()
             return
-        self.features = [dict(f) for f in DEFAULT_FEATURES]
+        self.features = [dict(f) for f in self.default_features]
         self._save()
 
     def load_features(self) -> list[dict]:
@@ -105,7 +90,7 @@ class ProgressTracker:
     def write_progress_file(self) -> None:
         """Write human-readable progress to claude-progress.txt."""
         summary = self.get_progress_summary()
-        header = f"# Narration Segmentation Service - Build Progress\n# Updated: {datetime.now().isoformat()}\n\n"
+        header = f"# {self.service_name} - Build Progress\n# Updated: {datetime.now().isoformat()}\n\n"
         with open(self.progress_file_path, "w") as f:
             f.write(header + summary + "\n")
 

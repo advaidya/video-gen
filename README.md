@@ -1,36 +1,45 @@
-# Narration Segmentation Service
+# Video Generation Pipeline
 
-A two-component project demonstrating agent-driven development: a **Python agent harness** (using the Claude Agent SDK) that orchestrates autonomous coding, and a **Spring Boot REST service** that segments narration scripts into ~8-second audio segments.
+A multi-service project demonstrating agent-driven development: **Python agent harnesses** (using the Claude Agent SDK) orchestrate autonomous coding of **Spring Boot REST services**.
 
 ## Architecture
 
 ```
-                    ┌─────────────────────┐
-                    │   Agent Harness     │
-                    │   (Python CLI)      │
-                    └────────┬────────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              ▼                              ▼
-   ┌──────────────────┐          ┌──────────────────┐
-   │ Initializer Agent │          │  Coding Agent    │
-   │ (One-shot)        │          │  (Iterative)     │
-   └────────┬─────────┘          └────────┬─────────┘
-            │                              │
-            ▼                              ▼
-   ┌──────────────────┐          ┌──────────────────┐
-   │ Project Scaffold  │ ──────▶ │ Feature-by-      │
-   │ (dirs, pom.xml,   │         │ Feature Dev      │
-   │  skeletons)       │         │ (14 features)    │
-   └──────────────────┘          └────────┬─────────┘
-                                          │
-                                          ▼
-                                ┌──────────────────┐
-                                │ Segmentation      │
-                                │ Service           │
-                                │ (Spring Boot)     │
-                                └──────────────────┘
+video_gen/
+├── agent_common/              # Shared Python library
+│   ├── security.py            # Bash command allowlist
+│   ├── progress_tracker.py    # Parameterized feature tracking
+│   └── runner.py              # Generic initializer + coding loop
+├── segmentation-service/      # Narration segmentation (port 8080)
+│   ├── agent_harness/         # Per-service agent harness
+│   │   ├── features.py        # 14 segmentation features
+│   │   ├── main.py            # Entry point
+│   │   └── prompts/           # Initializer + coding prompts
+│   └── src/...                # Spring Boot service
+├── prompt-service/            # Prompt generation (port 8081)
+│   ├── agent_harness/         # Per-service agent harness
+│   │   ├── features.py        # 12 prompt features
+│   │   ├── main.py            # Entry point
+│   │   └── prompts/           # Initializer + coding prompts
+│   └── src/...                # Spring Boot service
 ```
+
+Each service has its own agent harness that imports shared logic from `agent_common/`.
+
+## Services
+
+### Segmentation Service (port 8080)
+Segments narration scripts into ~8-second audio segments.
+
+- **Base URL**: `http://localhost:8080/api/v1/scripts`
+- **Endpoints**: POST (create + segment), GET (by ID), GET (list all), PUT (update + re-segment), DELETE
+
+### Prompt Generation Service (port 8081)
+Takes segment text + art style, calls the Claude API to generate text-to-image prompts.
+
+- **Base URL**: `http://localhost:8081/api/v1/prompts`
+- **Endpoints**: POST (create job), GET (by ID), GET (list all), DELETE
+- **Art Styles**: CINEMATIC, GHIBLI, PIXAR, WATERCOLOR, PHOTOREALISTIC, ANIME, CUSTOM
 
 ## Prerequisites
 
@@ -38,81 +47,82 @@ A two-component project demonstrating agent-driven development: a **Python agent
 - Java 17+
 - Maven 3.8+
 - MySQL 8.0+ (or Docker)
-- Claude API key (for agent harness)
+- Claude API key (for agent harness and prompt-service)
 - Node.js 18+ (for Claude Agent SDK)
 
 ## Quick Start
 
 ```bash
-# 1. Clone and set up environment
+# 1. Set up environment
 cp .env.example .env
 # Edit .env with your ANTHROPIC_API_KEY
 
-# 2. Install Python dependencies
-pip install -r requirements.txt
-
-# 3. Run the service directly (local profile with H2)
+# 2. Run Segmentation Service (local profile with H2)
 cd segmentation-service
 mvn spring-boot:run -Dspring-boot.run.profiles=local
 
-# 4. Test the API
+# 3. Run Prompt Service (local profile with H2, in a separate terminal)
+cd prompt-service
+mvn spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+### Test the APIs
+
+```bash
+# Segmentation Service
 curl -X POST http://localhost:8080/api/v1/scripts \
   -H "Content-Type: application/json" \
-  -d '{"title":"Demo","rawText":"This is a test narration. It has multiple sentences. Each one should be grouped into segments of about eight seconds duration."}'
+  -d '{"title":"Demo","rawText":"This is a test narration. It has multiple sentences. Each one should be grouped into segments."}'
+
+# Prompt Service
+curl -X POST http://localhost:8081/api/v1/prompts \
+  -H "Content-Type: application/json" \
+  -d '{"segments":["A hero walks through a misty forest at dawn.","The castle looms in the distance."],"style":"CINEMATIC"}'
 ```
 
 ## Agent Usage
 
-### Run the Full Pipeline
+Each service has its own agent harness:
 
 ```bash
-python -m agent_harness.main
+# Run segmentation-service agent
+python -m segmentation-service.agent_harness.main
+
+# Run prompt-service agent
+python -m prompt-service.agent_harness.main
 ```
 
-This will:
-1. Run the **initializer agent** to scaffold the Spring Boot project (if not already done)
-2. Run the **coding agent loop** to implement all 14 features iteratively
-
-### Run Initializer Only
-
-The initializer agent scaffolds the project structure, `pom.xml`, skeleton classes, and Docker files.
-
-### Run Coding Agent Only
-
-The coding agent picks up where the initializer left off, implementing features tracked in `feature_list.json`.
+Each agent:
+1. Runs the **initializer agent** to scaffold the Spring Boot project
+2. Runs the **coding agent loop** to implement features iteratively
 
 ## Manual Service Usage
 
 ### Build and Run
 
 ```bash
+# Segmentation Service
 cd segmentation-service
-
-# Compile
-mvn clean compile
-
-# Run tests
-mvn test
-
-# Run with H2 (local profile)
+mvn clean compile && mvn test
 mvn spring-boot:run -Dspring-boot.run.profiles=local
 
-# Run with MySQL (dev profile)
-mvn spring-boot:run -Dspring-boot.run.profiles=dev
+# Prompt Service
+cd prompt-service
+mvn clean compile && mvn test
+mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
 ### Docker
 
 ```bash
-cd segmentation-service
-docker-compose up --build
+# Segmentation Service (MySQL on port 3306)
+cd segmentation-service && docker-compose up --build
+
+# Prompt Service (MySQL on port 3307)
+cd prompt-service && docker-compose up --build
 ```
 
-## API Documentation
-
-Base URL: `http://localhost:8080/api/v1/scripts`
-
-### Endpoints
+## Segmentation Service API
 
 | Method | Path | Status | Description |
 |--------|------|--------|-------------|
@@ -122,195 +132,72 @@ Base URL: `http://localhost:8080/api/v1/scripts`
 | PUT | `/api/v1/scripts/{id}` | 200 | Update and re-segment |
 | DELETE | `/api/v1/scripts/{id}` | 204 | Delete script and segments |
 
-### Example Request
+## Prompt Service API
 
-```bash
-curl -X POST http://localhost:8080/api/v1/scripts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Product Demo",
-    "rawText": "Welcome to our product demonstration. Today we will walk through the key features of our platform. Each feature has been designed with the user in mind. Let us start with the dashboard overview. The dashboard provides real-time analytics and reporting. You can customize the layout to match your workflow."
-  }'
+| Method | Path | Status | Description |
+|--------|------|--------|-------------|
+| POST | `/api/v1/prompts` | 201 | Create prompt generation job |
+| GET | `/api/v1/prompts/{id}` | 200 | Get job with results |
+| GET | `/api/v1/prompts` | 200 | List all jobs |
+| DELETE | `/api/v1/prompts/{id}` | 204 | Delete job + results |
+
+### Prompt Request Example
+
+```json
+{
+  "segments": ["A hero walks through a misty forest at dawn.", "The castle looms in the distance."],
+  "style": "CINEMATIC",
+  "customStyleDescription": null
+}
 ```
 
-### Example Response
+### Prompt Response Example
 
 ```json
 {
   "id": 1,
-  "title": "Product Demo",
-  "rawText": "Welcome to our product demonstration...",
+  "style": "CINEMATIC",
+  "customStyleDescription": null,
+  "status": "COMPLETED",
   "createdAt": "2025-01-15T10:30:00",
   "updatedAt": "2025-01-15T10:30:00",
-  "segments": [
+  "results": [
     {
       "id": 1,
       "segmentNumber": 1,
-      "segmentText": "Welcome to our product demonstration. Today we will walk through the key features of our platform. Each feature has been designed with the user in mind.",
-      "estimatedDurationSeconds": 10.8,
-      "wordCount": 27
-    },
-    {
-      "id": 2,
-      "segmentNumber": 2,
-      "segmentText": "Let us start with the dashboard overview. The dashboard provides real-time analytics and reporting. You can customize the layout to match your workflow.",
-      "estimatedDurationSeconds": 9.6,
-      "wordCount": 24
+      "segmentText": "A hero walks through a misty forest at dawn.",
+      "generatedPrompt": "A cinematic wide shot of a lone figure walking...",
+      "createdAt": "2025-01-15T10:30:01"
     }
   ]
 }
 ```
 
-### Health Check
+## Spring Profiles
 
-```bash
-curl http://localhost:8080/actuator/health
-```
-
-### Testing from the Browser
-
-Since browsers can only make GET requests from the address bar, you can directly test these endpoints:
-
-- **List all scripts**: http://localhost:8080/api/v1/scripts
-- **Get a specific script**: http://localhost:8080/api/v1/scripts/1 (after creating one)
-- **Health check**: http://localhost:8080/actuator/health
-
-For POST, PUT, and DELETE requests, use one of these browser-based options:
-
-**Option 1 — Browser DevTools (no extensions needed)**
-
-Open any page on `localhost:8080`, press `F12` to open DevTools, go to the **Console** tab, and paste:
-
-```javascript
-// Create a script
-fetch('/api/v1/scripts', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    title: 'Browser Test',
-    rawText: 'This is a test narration from the browser. It has multiple sentences. Each one should be grouped into segments of about eight seconds duration.'
-  })
-}).then(r => r.json()).then(console.log);
-
-// Update a script (change the ID as needed)
-fetch('/api/v1/scripts/1', {
-  method: 'PUT',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    title: 'Updated Title',
-    rawText: 'New text content here. With multiple sentences for segmentation.'
-  })
-}).then(r => r.json()).then(console.log);
-
-// Delete a script
-fetch('/api/v1/scripts/1', { method: 'DELETE' }).then(r => console.log('Status:', r.status));
-```
-
-**Option 2 — REST Client extensions**
-
-Use a browser extension like [Talend API Tester](https://chromewebstore.google.com/detail/talend-api-tester-free-ed/aejoelaoggembcahagimdiliamlcdmfm) (Chrome) or [RESTClient](https://addons.mozilla.org/en-US/firefox/addon/restclient/) (Firefox) to send requests with any HTTP method and JSON body.
-
-### Inspecting the H2 Database
-
-When running with the `local` profile, the service uses an H2 in-memory database with a built-in web console.
-
-1. Start the service: `mvn spring-boot:run -Dspring-boot.run.profiles=local`
-2. Open the H2 console in your browser: http://localhost:8080/h2-console
-3. Enter the connection details:
-   - **JDBC URL**: `jdbc:h2:mem:segmentation_db`
-   - **User Name**: `sa`
-   - **Password**: *(leave blank)*
-4. Click **Connect**
-
-You can then run SQL queries directly:
-
-```sql
--- View all scripts
-SELECT * FROM NARRATION_SCRIPTS;
-
--- View all segments
-SELECT * FROM SCRIPT_SEGMENTS;
-
--- View segments for a specific script
-SELECT s.title, seg.segment_number, seg.segment_text, seg.word_count, seg.estimated_duration_seconds
-FROM NARRATION_SCRIPTS s
-JOIN SCRIPT_SEGMENTS seg ON s.id = seg.script_id
-WHERE s.id = 1
-ORDER BY seg.segment_number;
-
--- Count segments per script
-SELECT s.id, s.title, COUNT(seg.id) AS segment_count
-FROM NARRATION_SCRIPTS s
-LEFT JOIN SCRIPT_SEGMENTS seg ON s.id = seg.script_id
-GROUP BY s.id, s.title;
-```
-
-> **Note**: The H2 database is in-memory, so all data is lost when the service stops. This is by design for local development.
-
-## How the Agents Work
-
-### Feature Tracking
-
-The system tracks 14 features in `feature_list.json`:
-
-1. `project-scaffold` - Directory structure and build config
-2. `database-entities` - JPA entities
-3. `repositories` - Spring Data repositories
-4. `dtos` - Data transfer objects
-5. `segmentation-logic` - Text segmentation algorithm
-6. `rest-controller` - REST API endpoints
-7. `exception-handling` - Error handling
-8. `spring-profiles` - Environment configs
-9. `flyway-migration` - Database migrations
-10. `unit-tests-service` - Service layer tests
-11. `unit-tests-controller` - Controller tests
-12. `unit-tests-repository` - Repository tests
-13. `docker-config` - Containerization
-14. `actuator-health` - Health monitoring
-
-### Progress Tracking
-
-- `feature_list.json` - Machine-readable progress (JSON)
-- `claude-progress.txt` - Human-readable progress log
-
-### Session Management
-
-- The initializer agent runs as a one-shot session
-- The coding agent runs one session per feature with up to 30 turns
-- Failed features are retried up to 3 times
-
-### Security
-
-Bash commands are filtered through an allowlist. Only safe commands (mvn, java, git, mkdir, etc.) are permitted. Dangerous patterns (rm -rf /, sudo, etc.) are blocked.
-
-## Segmentation Algorithm
-
-The algorithm splits narration text into segments targeting ~8 seconds of spoken audio:
-
-- **Speaking rate**: 2.5 words/second
-- **Target duration**: 8.0 seconds
-- **Target words**: 20 words per segment
-- Splits at sentence boundaries (`.` `!` `?`)
-- Single long sentences stay whole
-- Last segment may be shorter
-
-## Cloud Deployment
-
-### Spring Profiles
+Both services support three profiles:
 
 - `local` - H2 in-memory database, Flyway disabled
 - `dev` - MySQL via environment variables, Flyway enabled
 - `prod` - MySQL with HikariCP connection pooling, minimal logging
 
-### Environment Variables
+## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `ANTHROPIC_API_KEY` | Claude API key (agent harness + prompt-service) | - |
 | `MYSQL_HOST` | MySQL hostname | `localhost` |
-| `MYSQL_PORT` | MySQL port | `3306` |
-| `MYSQL_DATABASE` | Database name | `segmentation_db` |
+| `MYSQL_PORT` | MySQL port | `3306` (seg) / `3307` (prompt) |
+| `MYSQL_DATABASE` | Database name | `segmentation_db` / `prompt_db` |
 | `MYSQL_USER` | Database user | `root` |
 | `MYSQL_PASSWORD` | Database password | - |
+
+## Health Checks
+
+```bash
+curl http://localhost:8080/actuator/health  # Segmentation Service
+curl http://localhost:8081/actuator/health  # Prompt Service
+```
 
 ## Troubleshooting
 
@@ -319,16 +206,8 @@ The algorithm splits narration text into segments targeting ~8 seconds of spoken
 - Ensure Maven 3.8+ is installed: `mvn -version`
 
 ### Tests fail with database errors
-- Make sure you're using the `local` profile for testing (H2 in-memory)
-- Run: `mvn test -Dspring.profiles.active=local`
+- Use the `local` profile: `mvn test -Dspring.profiles.active=local`
 
-### Agent harness import errors
-- Install dependencies: `pip install -r requirements.txt`
-- Ensure Python 3.10+: `python --version`
-
-### MySQL connection refused
-- Start MySQL or use Docker: `docker-compose up mysql`
-- Check env vars in `.env` match your MySQL config
-
-### Port 8080 already in use
-- Change the port: `mvn spring-boot:run -Dserver.port=8081`
+### Port conflict
+- Segmentation runs on 8080, Prompt on 8081
+- MySQL: segmentation on 3306, prompt on 3307

@@ -17,11 +17,17 @@ def _load_prompt(prompt_path: str) -> str:
         return f.read()
 
 
-async def run_initializer(tracker: ProgressTracker, project_dir: str, prompt_path: str) -> str | None:
-    """Run the initializer agent to scaffold the project.
+async def _collect_result(async_iter) -> ResultMessage | None:
+    """Consume the query async iterator and return the final ResultMessage."""
+    result = None
+    async for message in async_iter:
+        if isinstance(message, ResultMessage):
+            result = message
+    return result
 
-    Returns the session_id for potential follow-up sessions.
-    """
+
+async def run_initializer(tracker: ProgressTracker, project_dir: str, prompt_path: str) -> None:
+    """Run the initializer agent to scaffold the project."""
     prompt = _load_prompt(prompt_path)
 
     print("\n=== Initializer Agent ===")
@@ -35,17 +41,13 @@ async def run_initializer(tracker: ProgressTracker, project_dir: str, prompt_pat
         cwd=project_dir,
     )
 
-    session_id = None
-
     try:
-        result: ResultMessage = await query(
+        result = await _collect_result(query(
             prompt=f"{prompt}\n\nWorking directory: {project_dir}\n\nPlease scaffold the entire project now.",
             options=options,
-        )
+        ))
 
-        session_id = result.session_id if hasattr(result, "session_id") else None
-
-        if hasattr(result, "total_cost_usd") and result.total_cost_usd:
+        if result and result.total_cost_usd:
             print(f"  Cost: ${result.total_cost_usd:.4f}")
 
         tracker.update_feature("project-scaffold", "completed", "Scaffolded by initializer agent")
@@ -55,19 +57,16 @@ async def run_initializer(tracker: ProgressTracker, project_dir: str, prompt_pat
         print(f"Initializer agent error: {e}")
         tracker.update_feature("project-scaffold", "failed", str(e))
 
-    return session_id
-
 
 async def run_coding_session(
     tracker: ProgressTracker,
     feature: dict,
     project_dir: str,
     prompt_path: str,
-    previous_session_id: str | None = None,
-) -> tuple[str | None, bool]:
+) -> bool:
     """Run a single coding session for one feature.
 
-    Returns (session_id, success).
+    Returns True on success.
     """
     prompt = _load_prompt(prompt_path)
 
@@ -86,34 +85,25 @@ async def run_coding_session(
         cwd=project_dir,
     )
 
-    resume_id = previous_session_id if previous_session_id else None
-
-    session_id = None
-    success = False
-
     try:
         tracker.update_feature(feature["id"], "in_progress")
 
-        result: ResultMessage = await query(
+        result = await _collect_result(query(
             prompt=f"{prompt}\n\n{feature_instruction}",
             options=options,
-            resume=resume_id,
-        )
+        ))
 
-        session_id = result.session_id if hasattr(result, "session_id") else None
-
-        if hasattr(result, "total_cost_usd") and result.total_cost_usd:
+        if result and result.total_cost_usd:
             print(f"  Cost: ${result.total_cost_usd:.4f}")
 
         tracker.update_feature(feature["id"], "completed", "Implemented by coding agent")
-        success = True
         print(f"  Feature '{feature['name']}' completed.")
+        return True
 
     except Exception as e:
         print(f"  Error implementing '{feature['name']}': {e}")
         tracker.update_feature(feature["id"], "failed", str(e))
-
-    return session_id, success
+        return False
 
 
 async def run_coding_loop(tracker: ProgressTracker, project_dir: str, prompt_path: str) -> None:
@@ -139,7 +129,7 @@ async def run_coding_loop(tracker: ProgressTracker, project_dir: str, prompt_pat
 
         print(f"\nImplementing: {feature['name']} ({feature['id']})")
 
-        session_id, success = await run_coding_session(
+        success = await run_coding_session(
             tracker=tracker,
             feature=feature,
             project_dir=project_dir,
